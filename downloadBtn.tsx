@@ -1,8 +1,9 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { Button, ButtonProps, Text } from '@mantine/core';
-import { IconDownload } from '@tabler/icons-react';
+import { useState } from "react";
+import { Button, ButtonProps, Text } from "@mantine/core";
+import { IconDownload } from "@tabler/icons-react";
+import { useAuth } from "@/hooks/useAuth"; // chỉnh path cho đúng project
 
 type DownloadButtonProps = {
   /** API endpoint returning ArrayBuffer */
@@ -14,58 +15,65 @@ type DownloadButtonProps = {
   /** Button label */
   label?: string;
 
-  /** Optional callback when download starts */
   onStart?: () => void;
-
-  /** Optional callback when download succeeds */
   onSuccess?: () => void;
-
-  /** Optional callback when download fails */
   onError?: (error: Error) => void;
-} & Omit<ButtonProps, 'onClick'>;
+} & Omit<ButtonProps, "onClick">;
 
 export function DownloadButton({
   url,
-  filename = 'downloaded-file',
-  label = 'Download',
+  filename = "downloaded-file",
+  label = "Download",
   onStart,
   onSuccess,
   onError,
   ...buttonProps
 }: DownloadButtonProps) {
+  const { idToken } = useAuth(); // 👈 lấy token từ auth
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const hasPermission = Boolean(idToken);
+
   const handleDownload = async () => {
+    if (!idToken) {
+      setError("Không có quyền tải file");
+      return;
+    }
+
     try {
       setDownloading(true);
       setError(null);
       onStart?.();
 
-      const res = await fetch(url, { method: 'GET' });
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+        },
+      });
 
       if (!res.ok) {
+        if (res.status === 403) {
+          throw new Error("Không có quyền truy cập");
+        }
         throw new Error(`Download failed (${res.status})`);
       }
 
       const arrayBuffer = await res.arrayBuffer();
 
       const blob = new Blob([arrayBuffer], {
-        type:
-          res.headers.get('content-type') ||
-          'application/octet-stream',
+        type: res.headers.get("content-type") || "application/octet-stream",
       });
 
-      // Extract filename from Content-Disposition if available
-      const disposition = res.headers.get('content-disposition');
-      const serverFilename =
-        disposition?.match(/filename="?(.+)"?/)?.[1];
+      const disposition = res.headers.get("content-disposition");
+      const serverFilename = disposition?.match(/filename="?(.+)"?/)?.[1];
 
       const finalFilename = serverFilename || filename;
 
       const objectUrl = window.URL.createObjectURL(blob);
 
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = objectUrl;
       link.download = finalFilename;
       document.body.appendChild(link);
@@ -76,8 +84,7 @@ export function DownloadButton({
 
       onSuccess?.();
     } catch (err) {
-      const errorObj =
-        err instanceof Error ? err : new Error('Unknown error');
+      const errorObj = err instanceof Error ? err : new Error("Unknown error");
 
       setError(errorObj.message);
       onError?.(errorObj);
@@ -91,12 +98,18 @@ export function DownloadButton({
       <Button
         leftSection={<IconDownload size={16} />}
         loading={downloading}
-        disabled={downloading}
+        disabled={!hasPermission || downloading}
         onClick={handleDownload}
         {...buttonProps}
       >
         {label}
       </Button>
+
+      {!hasPermission && (
+        <Text size="xs" c="dimmed" mt={4}>
+          Không có quyền
+        </Text>
+      )}
 
       {error && (
         <Text size="xs" c="red" mt={4}>
